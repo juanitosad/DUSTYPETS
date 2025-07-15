@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dusty Pets</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: linear-gradient(45deg, #ff7e5f, #feb47b);
+      color: #fff;
+      margin: 0; padding: 0;
+      display: flex; justify-content: center; align-items: center;
+      min-height: 100vh;
+      flex-direction: column;
+    }
+    h1 { margin-bottom: 0.5em; }
+    #form-container {
+      background: rgba(255, 255, 255, 0.15);
+      padding: 20px;
+      border-radius: 15px;
+      width: 90vw; max-width: 400px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    }
+    input[type=text], textarea {
+      width: 100%;
+      padding: 8px;
+      margin: 8px 0;
+      border-radius: 8px;
+      border: none;
+      font-size: 1em;
+    }
+    input[type=file] {
+      margin: 8px 0;
+    }
+    button {
+      background: #ff6600;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-weight: bold;
+      font-size: 1em;
+      cursor: pointer;
+      color: white;
+      width: 100%;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    #status {
+      margin-top: 15px;
+      font-weight: bold;
+    }
+    img {
+      max-width: 100%;
+      margin-top: 15px;
+      border-radius: 12px;
+      box-shadow: 0 0 10px #fff3e0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Dusty Pets</h1>
+  <div id="form-container">
+    <form id="pet-form">
+      <label for="userid">ID de usuario:</label>
+      <input type="text" id="userid" name="userid" placeholder="us00001" required />
+      <label for="pettext">Texto de tu mascota:</label>
+      <textarea id="pettext" name="pettext" rows="3" placeholder="Escribe algo sobre tu mascota..." required></textarea>
+      <label for="petphoto">Foto de tu mascota:</label>
+      <input type="file" id="petphoto" accept="image/*" capture="environment" required />
+      <button type="submit">Guardar</button>
+    </form>
+    <div id="status"></div>
+    <img id="saved-image" alt="" style="display:none;" />
+    <p id="saved-text" style="white-space: pre-wrap;"></p>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script>
+    const db = firebase.firestore();
+    const storage = firebase.storage();
+    const form = document.getElementById('pet-form');
+    const status = document.getElementById('status');
+    const savedImage = document.getElementById('saved-image');
+    const savedText = document.getElementById('saved-text');
+    const useridInput = document.getElementById('userid');
+    const pettextInput = document.getElementById('pettext');
+    const petphotoInput = document.getElementById('petphoto');
+    const submitBtn = form.querySelector('button');
+
+    window.onload = async () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const id = urlParams.get('id');
+      if (id) {
+        useridInput.value = id;
+        useridInput.disabled = true;
+        submitBtn.disabled = true;
+        status.textContent = 'Cargando datos...';
+        try {
+          const doc = await db.collection('users').doc(id).get();
+          if (doc.exists) {
+            const data = doc.data();
+            pettextInput.value = data.text;
+            pettextInput.disabled = true;
+            savedText.textContent = data.text;
+            savedText.style.display = 'block';
+            const url = await storage.ref(data.imagePath).getDownloadURL();
+            savedImage.src = url;
+            savedImage.style.display = 'block';
+            petphotoInput.style.display = 'none';
+            status.textContent = 'Datos cargados. No puedes modificar.';
+          } else {
+            pettextInput.disabled = false;
+            petphotoInput.style.display = 'block';
+            submitBtn.disabled = false;
+            status.textContent = 'Nuevo usuario, completa los datos.';
+          }
+        } catch (e) {
+          status.textContent = 'Error cargando: ' + e.message;
+        }
+      }
+    };
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      if (!useridInput.value.trim() || !pettextInput.value.trim() || petphotoInput.files.length === 0) {
+        alert('Completa todos los campos');
+        return;
+      }
+      submitBtn.disabled = true;
+      status.textContent = 'Guardando datos...';
+      try {
+        const id = useridInput.value.trim();
+        const text = pettextInput.value.trim();
+        const file = petphotoInput.files[0];
+        const doc = await db.collection('users').doc(id).get();
+        if (doc.exists) {
+          status.textContent = 'Ya existe y no puede modificarse.';
+          submitBtn.disabled = true;
+          return;
+        }
+        const imagePath = `images/${id}_${Date.now()}_${file.name}`;
+        const storageRef = storage.ref(imagePath);
+        await storageRef.put(file);
+        await db.collection('users').doc(id).set({ text, imagePath, createdAt: new Date() });
+        status.textContent = 'Guardado correctamente.';
+        pettextInput.disabled = true;
+        useridInput.disabled = true;
+        petphotoInput.style.display = 'none';
+        submitBtn.disabled = true;
+        const url = await storageRef.getDownloadURL();
+        savedImage.src = url;
+        savedImage.style.display = 'block';
+        savedText.textContent = text;
+        savedText.style.display = 'block';
+      } catch (error) {
+        status.textContent = 'Error: ' + error.message;
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
